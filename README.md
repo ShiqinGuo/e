@@ -27,6 +27,7 @@ Enter 发送，运行中 Enter 提交 steer、Tab 排队，Shift+Enter 换行，
 
 ## 文档与开发
 
+- [简报运行示例](docs/RUN.md)
 - [操作指南](docs/USER_GUIDE.md)
 - [设计文档](docs/DESIGN.md)
 - [工程约定](AGENTS.md)

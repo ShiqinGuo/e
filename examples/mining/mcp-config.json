@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "mining-news": {
+      "type": "http",
+      "url": "https://mining-mcp.charworkservice.site/mcp/news/",
+      "headers": {
+        "Authorization": "Bearer ${MINING_SERVICE_TOKEN}"
+      }
+    },
+    "mining-documents": {
+      "type": "http",
+      "url": "https://mining-mcp.charworkservice.site/mcp/documents/",
+      "headers": {
+        "Authorization": "Bearer ${MINING_SERVICE_TOKEN}"
+      }
+    },
+    "mining-market": {
+      "type": "http",
+      "url": "https://mining-mcp.charworkservice.site/mcp/market/",
+      "headers": {
+        "Authorization": "Bearer ${MINING_SERVICE_TOKEN}"
+      }
+    }
+  }
+}

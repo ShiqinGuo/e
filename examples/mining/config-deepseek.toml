@@ -1,0 +1,46 @@
+[model]
+provider = "openai_chat_completions"
+auth_mode = "api_key"
+api_key_env = "DEEPSEEK_API_KEY"
+base_url = "https://api.deepseek.com"
+model = "deepseek-flash"
+reasoning_effort = "high"
+reasoning_levels = ["none", "high", "max"]
+chat_reasoning = "enabled"
+chat_send_reasoning_effort = true
+chat_stream_usage = true
+context_window = 256000
+max_output_tokens = 32768
+
+
+[runtime]
+approval_mode = "never"
+max_model_steps = 80
+max_tool_calls = 240
+max_parallel_reads = 4
+deadline_seconds = 2400
+allow_write = false
+allow_commands = false
+
+[skills]
+roots = ["./skills"]
+[mcp.servers.mining-news]
+transport = "streamable_http"
+url = "https://mining-mcp.charworkservice.site/mcp/news/"
+required = true
+timeout_seconds = 90
+token_env = "MINING_SERVICE_TOKEN"
+
+[mcp.servers.mining-documents]
+transport = "streamable_http"
+url = "https://mining-mcp.charworkservice.site/mcp/documents/"
+required = true
+timeout_seconds = 90
+token_env = "MINING_SERVICE_TOKEN"
+
+[mcp.servers.mining-market]
+transport = "streamable_http"
+url = "https://mining-mcp.charworkservice.site/mcp/market/"
+required = true
+timeout_seconds = 90
+token_env = "MINING_SERVICE_TOKEN"
