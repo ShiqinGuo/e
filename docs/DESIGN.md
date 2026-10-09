@@ -1,10 +1,8 @@
 # 通用异步 Agent Client 设计
 
-状态：0.1.16 已安装本机，66 个安装后的 Python 文件与源码哈希一致；411 项自动化测试通过，Ruff 与格式检查通过。摘要输入以完整窗口判断，超限按完整历史组分批总结；保留 95% 触发、25% 压缩目标和安全续期错误分类。ChatGPT 与 DeepSeek 已通过真实压缩及继续请求；DeepSeek 验证本次实际失败会话副本，原快照日志哈希不变。日期：2026-10-09。
-
 本文定义一个可独立使用的 Python coding-agent client。用户通过 TUI 与模型协作，Agent 可以读取和修改代码、执行命令、使用个人 Skills 与 MCP 工具，并在长任务、断网、中断和进程退出后保留可解释、可恢复的状态。第一阶段不实现矿业 server；后续矿业日报作为同一个 client 的任务配置和 MCP 接入场景。
 
-本文是当前设计的唯一入口。设计、操作指南及其它开发阶段 Markdown 文档统一在 docs/ 维护，根目录保留 README.md 与 AGENTS.md。已支持的操作与启动步骤见 [README.md](../README.md)，本地操作步骤见 [USER_GUIDE.md](USER_GUIDE.md)；第 21 节区分已实现内容、验收证据与仍未验证的边界。设计目标不能代替实际验收结果。
+本文是当前设计的唯一入口。设计、操作指南及其它开发阶段 Markdown 文档统一在 docs/ 维护，根目录保留 README.md 与 AGENTS.md。已支持的操作与启动步骤见 [README.md](../README.md)，本地操作步骤见 [USER_GUIDE.md](USER_GUIDE.md)。
 
 ## 1 目标与设计约束
 
@@ -30,9 +28,9 @@ Agent 编排手写，不使用 LangChain、LangGraph 或现成 Agent runtime。�
 
 ### 2.1 固定源码版本
 
-本次直接读取官方 Git 仓库，固定：
+设计参考固定源码版本：
 
-- OpenAI Codex：commit **19b7bffd7bd5c325a45b91111ce64c85610b90ba**，2026-10-08。
+- OpenAI Codex：commit **19b7bffd7bd5c325a45b91111ce64c85610b90ba**。
 - MCP Python SDK：tag **v2.3.0**，commit **2118f14f8a19bc158d8a1cf90af58d85d187f849**。
 - 教程：用户本地 learn-claude-code 阅读版，上游固定 commit ce8f9f186058939da54c9d6fead78dfb5d0fd6c3。主要参考第 1、2、8、14、17 课。
 - 工程规范：用户指定的 D:/code/gongkao-hub/src/AGENTS.md 及其继承的根 AGENTS.md。提取通用 Python 原则，不引入公考业务、部署和旧包迁移规则。
@@ -72,7 +70,7 @@ Agent 编排手写，不使用 LangChain、LangGraph 或现成 Agent runtime。�
 
 首个模型适配使用 Responses，并按用户要求接入 OpenAI 订阅登录；默认模型配置使用 gpt-6.1-sol，可由用户显式修改。当前适配器显式区分订阅与 API key 的请求参数；不支持的原生压缩明确拒绝，模型上下文窗口由配置给出。其他供应商通过新适配器增加，不以改 base_url 就宣称协议兼容；不静默换模型。实际依赖版本锁定在 uv.lock。
 
-Context7 本次返回的 MCP 示例混有旧握手内容，已经转读 v2.3.0 tag 源码与 protocol-versions.md。不能将旧 ClientSession 示例当作新版协议的固定实现。
+MCP 协议以 v2.3.0 tag 源码与 protocol-versions.md 为准；参考示例需要区分所属协议版本。
 
 ## 3 总体架构与职责
 
@@ -155,7 +153,7 @@ ToolCall 状态：PROPOSED → WAITING_APPROVAL（如需要）→ READY → DISP
 5. 收到完整响应并校验成功后，提交原生响应 items、工具调用和用量。
 6. 对完整工具批次做参数与权限校验；独立只读工具受并发限制执行，写工具和 shell 默认串行。
 7. 每个工具结果独立提交。下一次模型请求前，按模型原调用顺序组装完整结果批次，不能按完成先后打乱历史。
-8. 无工具调用时，依据响应结束原因返回结果；工具仍在运行、响应截断或存在 UNKNOWN 时不得宣称完成。
+8. 无工具调用时，依据响应结束原因返回结果；工具仍在运行或响应截断时不得宣称完成。未知副作用保留明确的风险说明和执行限制，不能伪装成成功。
 9. 提交 RunFinished 后通知 TUI，随后才可处理下一条队列输入。
 
 流式参数未闭合、JSON 未校验或模型 step 未完整提交时绝不执行工具。结构错误反馈模型修正；内部不变量损坏明确失败。COMPLETED 只表示本次运行正常交付，不是对代码质量的证明；最终回答应引用已取得的测试结果。
@@ -168,15 +166,15 @@ ToolCall 状态：PROPOSED → WAITING_APPROVAL（如需要）→ READY → DISP
 
 ## 5 TUI 与交互协议
 
-0.1.11 底部 ContextMeter 仅显示上次完整响应的 input_tokens，标记 last input；删除逐段字节计数、流式增量估算、模型请求开始前的估算广播和工具完成后的估算刷新。没有服务端计数或压缩完成后显示 unavailable，恢复会话从当前压缩边界后的最后完整响应读取实测输入用量。内部发送预算和压缩触发仍使用独立的 ContextManager，不把停留在上次请求的显示值当成当前请求预算。
+底部 ContextMeter 仅显示上次完整响应的 input_tokens，标记 last input；正文 delta、工具完成和请求开始不刷新显示值。没有服务端计数或压缩完成后显示 unavailable，恢复会话从当前压缩边界后的最后完整响应读取实测输入用量。内部发送预算和压缩触发仍使用独立的 ContextManager，不把停留在上次请求的显示值当成当前请求预算。
 
 Windows 剪贴板在工作线程使用 CF_UNICODETEXT 读写，复制采用隐藏的 message-only window 作为 owner；不在事件循环执行等待剪贴板锁或系统调用。Ctrl+C/另选 Ctrl+Shift+C 复制输入或正文选区，无选区不退出；Ctrl+V 与输入框右键替换当前输入选区，多行文字不提交。终端已有的 bracketed paste 事件保留，收到该事件不再次读取系统剪贴板。参考已锁定 Textual 8.2.8 的 _text_area.py 与 app.py，并区分 Textual 内部 clipboard 与 Windows 系统剪贴板。
 
-WorkIndicator 以 4Hz 更新 `· ✧ ✦ ✧` 与 elapsed；等待模型、thinking、执行工具时工作，idle 与审批等待时停止。减少动画模式固定符号，不通过伪造 reasoning 文本表达活动。此次不增加 provider 菜单。
+WorkIndicator 以 4Hz 更新 `· ✧ ✦ ✧` 与 elapsed；等待模型、thinking、执行工具时工作，idle 与审批等待时停止。减少动画模式固定符号，不通过伪造 reasoning 文本表达活动。
 
 采用对话主栏、固定输入区和简短活动状态。主栏在内部以用户 command_id 分组，以 run_id 路由执行事件；每次模型 step_id 对应独立回复，工具以 call_id 原位更新。界面不显示 Task/Agent 编号、角色标题和任务外框，以带底色的 `›` 用户输入、`•` 回复标记和留白建立层次。正文保持 Markdown，工具状态区分运行、成功、失败和结果未知。默认不显示 ID、逐次请求 token 明细或原始事件；诊断信息放在 /status。当前活动显示等待模型、思考、生成回复、运行工具、等待审批或压缩上下文。终端较窄时保持单栏。
 
-流式正文与可读 reasoning 采用每个回复独立的串行呈现任务。delta 回调直接更新目标文本，不等待绘制；取消原有 50ms 收集窗口。呈现任务最多每秒推进 60 帧，根据积压字符数、剩余呈现时间和上一帧实际渲染耗时决定片段大小；一次待呈现批次以约 300ms 为追赶目标，重复或增长的目标不延长当前期限，渲染偏慢时减少中间帧，避免数秒播放积压。该期限限制人为等待，不保证慢终端的实际绘制完成时间。不按句子、段落或换行等待文本到齐。正文只向 `Markdown.append` 追加新增片段，非前缀修正才 `update`；reasoning 只更新变化的前缀。已完成 Markdown 块保持组件身份，中文和已收到的组合 emoji 避免在片段边界截断。恢复历史直接显示全文，取消时立即追平已收到内容，卸载时取消后台呈现任务。跟随底部使用 Textual anchor，用户向上滚动时释放跟随。依据锁定 Textual 8.2.8 的 `widgets/_markdown.py`、`widget.py` 核对 append、锁和 anchor 行为。
+流式正文与可读 reasoning 采用每个回复独立的串行呈现任务。delta 回调直接更新目标文本，不等待绘制；呈现任务最多每秒推进 60 帧，根据积压字符数、剩余呈现时间和上一帧实际渲染耗时决定片段大小；一次待呈现批次以约 300ms 为追赶目标，重复或增长的目标不延长当前期限，渲染偏慢时减少中间帧，避免数秒播放积压。该期限限制人为等待，不保证慢终端的实际绘制完成时间。不按句子、段落或换行等待文本到齐。正文只向 `Markdown.append` 追加新增片段，非前缀修正才 `update`；reasoning 只更新变化的前缀。已完成 Markdown 块保持组件身份，中文和已收到的组合 emoji 避免在片段边界截断。恢复历史直接显示全文，取消时立即追平已收到内容，卸载时取消后台呈现任务。跟随底部使用 Textual anchor，用户向上滚动时释放跟随。依据锁定 Textual 8.2.8 的 `widgets/_markdown.py`、`widget.py` 核对 append、锁和 anchor 行为。
 
 节奏控制参考固定 Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 `codex-rs/tui/src/streaming/chunking.rs`：正常每 tick 呈现一行，积压达到 8 行或最早内容等待 120ms 时进入追赶模式，300ms 为严重积压阈值。本项目采用短文本片段及有界追赶时间，适配 Textual 的 Markdown 增量渲染；不复制 Codex 的整行队列和滞回状态机。
 
@@ -203,29 +201,33 @@ Agent：先检查接口实现和失败测试。
 - Enter 提交，Shift+Enter 换行，Ctrl+J 为换行备用键；保留 Ctrl+Enter 提交。输入框从一行开始，按文本视觉行增长到八行，之后在框内滚动。没有 Send、Cancel 或审批按钮。输入绑定仅在输入框聚焦时生效；审批列表聚焦时 Enter 确认默认 Deny。
 - 输入以 `/` 开头且未进入参数时，展示带说明和参数提示的命令列表。按命令名做大小写无关的模糊匹配，前缀优先；上下键选择，Tab 或 Enter 补全，完整命令 Enter 直接执行。补全不调用模型、不执行命令；无匹配明确提示。Esc 优先关闭候选，下一次 Esc 才取消运行。候选与输入框在窄屏中保持可用。
 - Textual Pilot 覆盖实际键盘事件、带换行的粘贴、命令筛选和补全、排队、审批与窄屏状态；真实 Windows 终端的 IME 行为另行人工验收。
-- Windows 使用应用自有 `WindowsInputDriver`，运行期间启用 Win32 input mode（9001），退出时关闭。将携带修饰键的 Win32 records 转换后交给 Textual 的 XTermParser，保留鼠标、焦点、粘贴和 UTF-16 分片；输入线程失败时显示错误并退出。Textual 固定为 8.2.8，升级时必须复核内部 driver/parser 契约。原版 `drivers/win32.py` 在 VT 模式拼接 UnicodeChar，不能可靠区分 Enter 的修饰键；不能用 Pilot 事件模拟通过来证明真实终端兼容。已在 Windows 伪终端注入 Win32 records 验证 Enter、Shift+Enter 和命令补全，物理键盘及 IME 仍需真实交互验收。不支持增强输入协议的终端可用 Ctrl+J 换行。
+- Windows 使用应用自有 `WindowsInputDriver`，运行期间启用 Win32 input mode（9001），退出时关闭。将携带修饰键的 Win32 records 转换后交给 Textual 的 XTermParser，保留鼠标、焦点、粘贴和 UTF-16 分片；输入线程失败时显示错误并退出。Textual 固定为 8.2.8，升级时必须复核内部 driver/parser 契约。原版 `drivers/win32.py` 在 VT 模式拼接 UnicodeChar，不能可靠区分 Enter 的修饰键；不能用 Pilot 事件模拟通过来证明真实终端兼容。验收使用 Windows 伪终端注入 Win32 records 检查 Enter、Shift+Enter 和命令补全，物理键盘及 IME 使用真实终端交互验收。不支持增强输入协议的终端可用 Ctrl+J 换行。
 - 参考 Codex 固定 commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 `codex-rs/tui/src/bottom_pane/chat_composer.rs`：普通 Enter 提交，并单独处理 Windows 粘贴输入。本项目沿用 Enter 提交语义，通过 Textual bracketed paste 事件保留粘贴块，不将其中换行解释为提交；Win32 协议依据微软 [ConPTY keyboard handling specification](https://github.com/microsoft/terminal/blob/main/doc/specs/%234999%20-%20Improved%20keyboard%20handling%20in%20Conpty.md)。
 - Esc 请求取消当前 Run；输入草稿和历史保留。退出应用走取消、持久化、子进程清理和数据库关闭流程。
-- 运行中提交的新消息持久化到队列，在当前 Run 结束后执行。取消和提交分别操作；首版不做半个工具批次中的隐式插话。恢复应用不自动消费旧队列。/continue 优先执行既有队列；无队列但最新任务失败、取消、中断或部分完成时，创建新的持久化续作输入和 Run，沿用原上下文。
+- Enter 在活动 Run 中提交 steer，Tab 显式排队；菜单可见时 Tab 用于补全。恢复应用不自动消费旧队列，/continue 优先使用已持久化输入。
 - 权限请求在输入框上方显示，默认 Deny，上下键选择、Enter 确认、Esc 拒绝；审批期间 composer 禁用。完整命令、路径和参数可滚动查看，绑定 request_id、call_id。MCP elicitation、sampling 和 roots 回调尚未实现，不向服务端宣告支持。
 - /permissions 在输入框上方打开模式列表，上下键选择、Enter 确认、Esc 关闭；/permissions MODE 直接设置。模式只对当前进程生效，不写回配置，运行期间不能切换。持久字段为 runtime.approval_mode，CLI 覆盖为 --approval-mode。
 - 当前命令包括 /new、/resume、/continue、/sessions、/login、/logout、/model、/reasoning、/permissions、/skills、/mcp、/compact、/status、/config、/resolve。配置文件变更需要重新启动应用；模型切换只在运行之间进行。
 - 模型切换只能发生在 Run 之间；不兼容的原生 items 不能直接跨供应商发送，必须明确建立新上下文或新会话。
 - 文本流与工具 stdout 分离；终端控制字符经过处理，工具输出不得直接改变终端状态。
 
+Enter 在活动 run 中提交 steer，Tab 显式排队，命令菜单可见时 Tab 仍用于补全。steer 写入带 target_run_id 的 PendingInput，持久化后确认接收；完整模型/工具批次之间追加 UserMessage，随后同一 run 继续。不会取消已执行工具或拆开调用与结果。最终回答后原子检查待接收输入，再关闭 steer 接收边界；边界关闭后的输入排入下一 run。失败或取消后未消费消息保留，/continue 读取日志继续，不重放已完成工具。
+
+参考固定 Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba`：`codex-rs/tui/src/bottom_pane/chat_composer.rs:3492` 区分提交与排队，`codex-rs/core/src/session/input_queue.rs:389` 原子提取输入，`codex-rs/core/src/tasks/regular.rs:115` 在任务正常结束前检查 pending。TUI 按消费回执切换后续输出所属用户消息，恢复同一 run 的多条用户输入时保持顺序。
+
 TUI 发送 SubmitMessage、CancelRun、RespondToInteraction 等命令。Runtime 发出 TextDelta、ToolStarted、ToolOutputChunk、ToolFinished、InteractionRequested、CompactionStarted、RunFinished 等事件。
 
 持久化事件携带递增 seq；高频 delta 仅暂态显示，TUI 立即投递最新文本目标，由独立呈现任务合并与绘制，不在 delta 回调里等待动画。完成及切换回复时等待当前呈现任务追平，取消时关闭平滑等待。其他事件回调仍按序 await，关键执行状态必须先完成持久化再发送展示事件。节点和正文长度有界，恢复时使用已校验的日志和投影。每条事件带 run_id，取消后的晚到输出不能写进下一次 Run。全历史分页属于后续性能改进。
 
-本次对话展示依据固定源码核对：Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 [history_cell/messages.rs](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/tui/src/history_cell/messages.rs) 使用独立用户提示底色和 assistant 首段标记，流式续段属于同一消息；[chatwidget/completion.rs](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/tui/src/chatwidget/completion.rs) 按 turn.id 去重完成信息；[status_indicator_widget.rs](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/tui/src/status_indicator_widget.rs) 在 composer 上方显示活动；[diff_render.rs](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/tui/src/diff_render.rs) 区分红绿变更与行号。
+对话展示参考固定源码：Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 [history_cell/messages.rs](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/tui/src/history_cell/messages.rs) 使用独立用户提示底色和 assistant 首段标记，流式续段属于同一消息；[chatwidget/completion.rs](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/tui/src/chatwidget/completion.rs) 按 turn.id 去重完成信息；[status_indicator_widget.rs](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/tui/src/status_indicator_widget.rs) 在 composer 上方显示活动；[diff_render.rs](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/tui/src/diff_render.rs) 区分红绿变更与行号。
 
 pi commit `ce950d78f424dcaf9f5d6a03ce80ab141130eb1d` 的 [interactive-mode.ts](https://github.com/badlogic/pi-mono/blob/ce950d78f424dcaf9f5d6a03ce80ab141130eb1d/packages/coding-agent/src/modes/interactive/interactive-mode.ts) 按 message_start/update/end 更新单条 assistant 组件，工具按 toolCallId 更新，agent_end 才移除 working 状态；[agent-loop.ts](https://github.com/badlogic/pi-mono/blob/ce950d78f424dcaf9f5d6a03ce80ab141130eb1d/packages/agent/src/agent-loop.ts) 的 turn_end 是一次模型响应与工具结果周期，不能用作整条用户请求的结束。[theme/dark.json](https://github.com/badlogic/pi-mono/blob/ce950d78f424dcaf9f5d6a03ce80ab141130eb1d/packages/coding-agent/src/modes/interactive/theme/dark.json) 将用户输入、工具待执行/成功/失败、diff 设为独立颜色语义。本项目沿用语义分层，以自己的 command_id/run_id/step_id/call_id 契约实现 Task 和 Agent 分组，并选择更简短的默认展示，不复制两者的事件名称或完整界面。
 
 ## 6 配置与个人指令
 
-0.1.7 ModelConfig、三个示例及用户默认/DeepSeek profile 的 context_window 统一为 256000。这是本地预算配置，不宣称服务端容量已增加。该版本曾按可用输入预算的 80% 触发；现已改为完整窗口的 95%，见第 11 节。
+ModelConfig 的 context_window 默认值为 256000，用于本地预算；实际容量需要按所选服务配置。压缩触发与目标见第 11 节。
 
-0.1.4 增加显式 `openai_chat_completions` provider，仅允许 `api_key` 认证；bootstrap 按 provider 组装 ChatCompletionsGateway 或 ResponsesGateway，不透明回退。兼容配置见 config.openai-compatible.example.toml；DeepSeek 配置见 config.deepseek.example.toml，使用 deepseek-flash 和 DEEPSEEK_API_KEY 引用。密钥从所配置的环境变量读取，不写入配置或会话历史。
+显式 `openai_chat_completions` provider，仅允许 `api_key` 认证；bootstrap 按 provider 组装 ChatCompletionsGateway 或 ResponsesGateway，不透明回退。兼容配置见 config.openai-compatible.example.toml；DeepSeek 配置见 config.deepseek.example.toml，使用 deepseek-flash 和 DEEPSEEK_API_KEY 引用。密钥从所配置的环境变量读取，不写入配置或会话历史。
 
 日常入口为 agent-client，默认读取用户目录 ~/.agent-client/config.toml；AGENT_HOME 或 --home 显式覆盖用户数据目录。用户在默认配置中修改 provider、auth_mode、base_url、model、api_key_env 等标识，重启后生效。--config 仅为临时覆盖，不作为切换服务的必要步骤，不新增进程内 provider 菜单。认证模块按配置处理登录，凭据单独保存；配置不保存令牌或登录成功布尔值，也不由登录流程自动覆盖用户选择的端点与模型。
 
@@ -299,7 +301,7 @@ Skill 是指令与资源，不是权限凭证。执行其脚本仍经过普通�
 
 ## 8 MCP 接入与工具目录
 
-0.1.8 MCP 配置环境引用按 Process、Windows User、Windows Machine 优先级解析；只有前一来源缺失才尝试后一来源，显式空值不回退。注册表只查询配置引用的名称，通过 asyncio.to_thread 读取，解析值用 SecretStr 保留于连接生命周期，并用于目录及结果脱敏；不写入配置、会话和日志。连接错误中只有已知缺失变量异常展示变量名，其他错误不输出可能含凭据的异常正文。启动时展示连接状态，运行前缀包含服务连接目录；search_mcp_tools 返回具名 tools、servers 和查询提示，空结果不能被解释成没有配置 MCP。短关键词或空查询用于 schema 延迟发现，连接失败不得静默掩盖为纯空数组。
+MCP 配置环境引用按 Process、Windows User、Windows Machine 优先级解析；只有前一来源缺失才尝试后一来源，显式空值不回退。注册表只查询配置引用的名称，通过 asyncio.to_thread 读取，解析值用 SecretStr 保留于连接生命周期，并用于目录及结果脱敏；不写入配置、会话和日志。连接错误中只有已知缺失变量异常展示变量名，其他错误不输出可能含凭据的异常正文。启动时展示连接状态，运行前缀包含服务连接目录；search_mcp_tools 返回具名 tools、servers 和查询提示，空结果不能被解释成没有配置 MCP。短关键词或空查询用于 schema 延迟发现，连接失败不得静默掩盖为纯空数组。
 
 使用 SDK v2.3.0 的高层异步 Client。该版本 mode=auto 先探测现代协议，旧 server 则由 SDK 进入旧握手；本项目默认采用这个标准协商并在 /mcp 展示实际 protocol_version [M1]。这不是应用层维护两套兼容实现。当前没有最低协议版本的额外配置项，不能将完成连接描述为使用某个未经观测的版本。
 
@@ -320,6 +322,12 @@ Skill 是指令与资源，不是权限凭证。执行其脚本仍经过普通�
 required server 启动失败阻止相关运行；optional server 失败显示不可用，不能导致 coding 工具一起失效。重连和重试受总体预算限制。readOnlyHint 用于已配置服务的执行风险分类，不替代 REMOTE 权限审批，不触发自动重放；未明确只读的调用按有副作用处理，并发与重试仍由本地工具策略决定。
 
 保留 structuredContent、content、isError 与必要协议元数据。不能简单转成 str。首版模型不支持的媒体以明确类型和资源引用返回，不伪装已读取。用户输入请求与现代多轮请求进入同一交互状态机；无实现的可选能力不向 server 宣称支持。认证过期显示 NEEDS_AUTH，不将其当作空查询结果。
+
+已配置 MCP 服务的只读声明进入具名工具契约与 schema fingerprint；权限仍保留 REMOTE 审批，声明不扩大写入授权。查询超时记 FAILED，未明确只读的远端操作仍保守记 UNKNOWN。未解决的 UNKNOWN 保留在日志中并向模型说明，新用户输入与读取可继续，副作用执行由 ToolService 阻止，不再在 Run 入口阻断整个会话。
+
+连接 owner 终止时使在途和等待请求明确失败。请求超时或取消会清理所属连接，下一次独立请求可重新初始化；不得重放此前调用。界面将已提出但未派发的工具标为 queued，收到 TOOL_DISPATCHING 后才显示 working。
+
+存在未知结果时仍允许压缩，但保留相应调用与结果的完整原生分组，执行限制始终由原始日志计算。只读/副作用分类在派发事实中持久化，重启后的恢复不因丢失临时内存而把新只读查询误记为未知；旧记录缺失分类时保持保守。当前批次发生未知后，随后有副作用动作立即拒绝，避免等整批结束才发现风险。
 
 ## 9 本地检索与编码工具
 
@@ -346,9 +354,9 @@ run_command 显式指定工作目录与 shell，首版 Windows 使用配置的 P
 
 取消需要停止进程树并收集退出结果：Windows 使用受控 Job Object/等价执行器，POSIX 使用进程组。接入前验证实际平台行为；无法证明已停止时记为 UNKNOWN，不能仅因 asyncio task 已取消就显示“命令停止”。
 
-0.1.7 区分取消请求与实际 terminal 结果：本地执行器确认终止后保留 stdout、stderr 和 exit code，ToolService/Runtime 等待结果及日志持久化屏障，记录 CANCELLED；若取消到达时已完成，则记录真实 SUCCEEDED/FAILED。取消不回滚此前副作用，也不能因正常取消而误记 UNKNOWN。客户端崩溃导致派发结果无法确认、远端副作用请求被中断或无法确认终止时，仍走 UNKNOWN 恢复屏障，不自动重放。旧版会话若未保留终止事实，不能自动修改其历史 UNKNOWN。
+区分取消请求与实际 terminal 结果：本地执行器确认终止后保留 stdout、stderr 和 exit code，ToolService/Runtime 等待结果及日志持久化屏障，记录 CANCELLED；若取消到达时已完成，则记录真实 SUCCEEDED/FAILED。取消不回滚此前副作用，也不能因正常取消而误记 UNKNOWN。客户端崩溃导致派发结果无法确认、远端副作用请求被中断或无法确认终止时，仍走 UNKNOWN 恢复屏障，不自动重放。会话若未保留终止事实，不能自动修改其历史 UNKNOWN。
 
-实现参考固定 Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 [core/src/tools/parallel.rs:262](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/core/src/tools/parallel.rs#L262)：取消时，对 finishes_on_cancellation、已 terminal 或已完成的 dispatch 等待真实结果；其他分支 abort 后等待任务结束。本项目采用本地进程终止确认与事实持久化屏障，不将该参考直接等同于本项目权限和恢复策略。[Claude Code 官方交互文档](https://code.claude.com/docs/en/interactive-mode) 明确 Esc 中断当前回复或工具且保留已做工作；本次在 [官方公开仓库](https://github.com/anthropics/claude-code) 的检索仅取得插件和文档资源，未找到 CLI 取消内核源码，因此不据此推断内部实现。
+实现参考固定 Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 [core/src/tools/parallel.rs:262](https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/core/src/tools/parallel.rs#L262)：取消时，对 finishes_on_cancellation、已 terminal 或已完成的 dispatch 等待真实结果；其他分支 abort 后等待任务结束。本项目采用本地进程终止确认与事实持久化屏障，不将该参考直接等同于本项目权限和恢复策略。[Claude Code 官方交互文档](https://code.claude.com/docs/en/interactive-mode) 明确 Esc 中断当前回复或工具且保留已做工作；该交互文档只作为用户行为参考。
 
 每次工具执行均记录副作用类别：READ、WORKSPACE_WRITE、PROCESS、REMOTE_WRITE。READ 可受控并发；其他默认串行。补丁修改与 shell 共享工作区执行锁。
 
@@ -393,11 +401,9 @@ JSONL 保存完整的已提交会话事实，模型消息正文可内联或引�
 
 ### 11.2 触发与预算
 
-0.1.9 工具结果投影集中在 application/tool_output.py：完整结果及不可变附件与模型活动窗口分离。每条入模结果的序列化文本统一受 context.tool_output_characters 限制，默认 16000；已有 artifact_id 也不能跳过限制。保留首尾、原长度、状态和读取引用。MCP 文本与 structured_content 仅在 JSON 语义完全相同时去重，其他不同内容保留；二进制媒体保存在完整记录，不把 base64 当正文投入文本上下文。调用与结果始终按 call_id 配对，不把工具输出提升为用户或系统指令。
+工具结果投影集中在 application/tool_output.py：完整结果及不可变附件与模型活动窗口分离。每条入模结果的序列化文本统一受 context.tool_output_characters 限制，默认 16000；已有 artifact_id 也不能跳过限制。保留首尾、原长度、状态和读取引用。MCP 文本与 structured_content 仅在 JSON 语义完全相同时去重，其他不同内容保留；二进制媒体保存在完整记录，不把 base64 当正文投入文本上下文。调用与结果始终按 call_id 配对，不把工具输出提升为用户或系统指令。
 
 参考 Codex 固定 commit 19b7bffd7bd5c325a45b91111ce64c85610b90ba，codex-rs/core/src/context_manager/history.rs 的 record_annotated_items 与 record_item_with_metadata 在保留完整 rollout 的同时，对活动历史里的工具结果应用 TruncationPolicy。这里采用完整事实与有界入模视图分离，首版以可配置序列化字符上限执行，不宣称等价于精确 token tokenizer。
-
-本轮读取最近用户会话 038a7835a86d4649bab5d1e68acf3d01 的只读日志：28 个已提交工具结果向历史加入 293807 字符，最大完整结果约 100 万字符但已有附件截断，未整份直接入模。旧路径先在 ToolService 截断到约 28k，再因 artifact_id 已存在而跳过 Runtime 的 16k 限制，导致更大结果反而保留更多。此次移除双层规则和豁免；既有历史事实不改写，新产生结果使用统一投影。
 
 令 W 为模型上下文容量，O 为本次输出/推理预留，S 为估算安全余量，H = W - O - S 为可用输入预算。容量与计量口径来自已验证模型配置，不凭名称猜测。
 
@@ -417,17 +423,19 @@ JSONL 保存完整的已提交会话事实，模型消息正文可内联或引�
 
 参考 Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 `codex-rs/core/src/compact.rs:372`：接收非空文本摘要并重建上下文。本项目采用相同文本契约，额外验证完整工具配对、检查点持久化和窗口预算。
 
-摘要使用独立的 summary_max_output_tokens（默认 8192）与 summary_reasoning_effort（未配置时 Responses 使用 low，具有显式 thinking 开关的 Chat Completions 使用 none，其余使用当前模型档位）；Responses 与具有 thinking 开关的 Chat Completions 不继承普通回复的高推理档位。摘要响应未完成时保存诊断事实，保持原上下文；摘要以严格非空文本契约接收，不再要求模型生成固定 JSON 对象。空摘要、未完成响应、意外工具调用和未达到目标预算均不提交新窗口。旧版 invalid_summary 没有记录响应内容，不能断言具体字段错误。
+摘要使用独立的 summary_max_output_tokens（默认 8192）与 summary_reasoning_effort（未配置时 Responses 使用 low，具有显式 thinking 开关的 Chat Completions 使用 none，其余使用当前模型档位）；Responses 与具有 thinking 开关的 Chat Completions 不继承普通回复的高推理档位。摘要响应未完成时保存诊断事实，保持原上下文；摘要以严格非空文本契约接收。空摘要、未完成响应、意外工具调用和未达到目标预算均不提交新窗口。
 
 默认 strategy=summary：在单独、无工具的模型请求中生成由 ConversationSummary 校验的纯文本摘要，包含当前目标、用户限制、关键决定、已修改文件、验证结果与来源、未完成事项、有效 Skill 与证据引用。当前用户请求只保留一次，并保留最近完整模型/工具批次和全部未决尾部。摘要只作为上下文材料，不提升为新的系统授权。
 
 ContextWindow 记录完整分组的 start/end 边界。一个 ModelResponseCommitted 的全部原生 output 与其按 call_id 顺序配对的结果构成一组，不能把 reasoning、并行调用和结果分别裁切。分组来自原始日志，压缩检查点保存同一组边界。因此即使只有一条用户请求，也能压缩长 Run 内已完成的旧步骤。含后台未终结进程句柄的完整组仍受保护，只有终态 poll 或已记录的进程处置结果才能解除保护；句柄集合按排序后的顺序序列化。旧检查点没有分组信息时，按完整用户交互保守分组，不猜测原生响应边界。
 
-摘要请求保留当前请求和待压缩历史，最后追加明确的合成用户消息要求生成交接摘要，禁止继续回答历史用户消息。参考 Codex `compact.rs:123` 和 `compact.rs:270`，合成指令只用于本次摘要，不进入恢复检查点；其成本也计入预算。某个单独批次过大、固定指令超预算或摘要请求仍无法容纳时，明确返回 context_budget，保留原窗口；不通过截断原始用户要求或拆开调用组继续执行。
+摘要请求保留当前请求和待压缩历史，最后追加明确的合成用户消息要求生成交接摘要，禁止继续回答历史用户消息。参考 Codex `compact.rs:123` 和 `compact.rs:270`，合成指令只用于本次摘要，不进入恢复检查点；其成本也计入预算。摘要输入按配置的完整窗口 W 判断，不额外扣除普通请求的输出预留与安全余量。首次尝试完整历史；估算超限或供应商明确报告上下文超限时，严格缩小当前批次。每批携带前批摘要、当前请求和合成总结指令，成功后推进历史游标；每个旧分组按顺序处理一次，工具调用和结果不得拆开。参考固定 Codex commit 的 `codex-rs/core/src/compact.rs:338`，其超限补救移除最早历史项；本项目采用完整分组分批总结，保留尚未总结的历史。单个不可拆分分组仍超限，或固定前缀及受保护尾部本身超过目标时，明确返回 context_budget 并保留原窗口。
 
 压缩输出校验结构、预算、引用可访问性和工具配对；这只能发现结构问题，不能证明语义完全无损。关键指令由冻结原文快照重新构建，未决副作用由 JSONL 记录并投影到数据库，不能只靠摘要记忆。
 
 当前实现 strategy=summary。配置 strategy=provider_native 会得到明确的不支持错误，不会静默切换策略。后续若核实模型原生 compact 能力，再按官方契约保存完整返回窗口，不自行只摘出摘要或 opaque item [D2]。
+
+中间摘要只在当前压缩操作中使用。全部批次成功、原生调用配对完整、替换窗口满足 25% 目标且活动上下文未发生冲突后，才提交一次 checkpoint；后续批次失败或取消均保留原窗口。压缩不执行工具，UNKNOWN 对应的完整分组仍受保护，副作用限制始终根据原始日志计算。
 
 压缩提交流程：
 
@@ -456,6 +464,10 @@ ContextWindow 记录完整分组的 start/end 边界。一个 ModelResponseCommi
 采用这种分工后，“数据库已经有一行”不能单独证明动作发生，“JSONL 没有结果”也不能证明外部动作未执行。所有会影响恢复的队列消费、审批决定、状态和配置版本都必须有对应会话记录，不允许只写 SQLite。
 
 数据位于 AGENT_HOME，独立于被操作项目。目录形态为 sessions/<session_id>/rollout.jsonl、state.sqlite、artifacts/ 和 logs/。会话首条 SessionCreated 记录含恢复列表所需的身份与工作区元数据；数据库缺失时可以扫描会话目录发现记录。日志和数据库仅放本机磁盘，不支持共享网络盘上的多机协作。
+
+跨层数据采用 domain 中的 Pydantic 契约，文件内部记录采用 dataclass。动态 MCP schema、参数和结构化响应只在协议边界封装为 ProtocolObject；固定字段、重复 JSON 键和非有限数在边界校验，业务状态不保存裸字典。原生 Responses 消息保留 phase、reasoning、annotations、logprobs 等具名字段；字段契约参考 openai-python 固定 commit `9301e319ea33ef28fba380f39a289dedc14652c1` 的 `responses/response_output_message.py` 与 `response_output_text.py`。
+
+JSONL payload 使用版本 2；版本 1 的字符串结果和 MCP 服务目录仅在读取边界显式迁移。先按原始 wire 内容验证校验和，再转换当前契约；不重写历史，不重放工具。
 
 ### 12.2 JSONL 记录与持久化屏障
 
@@ -506,6 +518,8 @@ UI 可先显示暂态流式内容，但“已接收”“已完成”的确认�
 - 已验证 staging 的 checksum 与 READY 状态先持久化，随后隔离旧 sidecar 和主库，再安装新主库。切换中途进程退出，普通 open 可按 manifest 完成已验证切换；未完成验证时明确要求重新执行 rebuild，不能创建空投影掩盖故障。现存会话目录缺少 JSONL、坏行、半行或本地引用损坏均使离线重建失败，保留原事实和备份。
 - 会话恢复前必须追平投影。重建只是恢复状态视图，绝不触发工具重放或模型调用。
 
+维护机制参考固定 Codex commit 的 `state/src/runtime/recovery.rs` 对失败数据库及 sidecar 的隔离，以及 `state/src/runtime/threads.rs` 的关联状态删除顺序。本项目采用显式离线 CLI、客户端 lease、校验 staging 和持久化 manifest，以自身恢复协议维护投影。
+
 ### 12.5 大输出、备份与清理
 
 ArtifactStore 先写临时文件、刷新与同步、原子改名，再允许 JSONL 记录引用；最后才更新 SQLite 索引。崩溃最多留下未引用文件，不能把还没完成的内容作为持久化引用。读取校验 hash 和大小，缺失内容显示不可用。
@@ -526,7 +540,7 @@ JSONL 持久化失败属于正确性故障，禁止新副作用。SQLite 投影�
 
 默认恢复到待用户继续的状态，展示中断点与待核对动作；不会因为打开会话就自动执行上一次 shell。显式 continue 后才开始新 Run。原进程仍活跃时只能只读查看，不能强抢执行锁。
 
-prepare_continuation 是 TUI /continue 与 CLI continue SESSION_ID 共用的入口：在会话锁内完成恢复，存在未知副作用则返回 BLOCKED 及 call_id，要求先 resolve；有未消费输入则返回原队列；没有队列但有未完成任务时创建新的 command_id，并以 continuation_of 关联原 Run。不会重新提交已消费的 command_id，也不会自动重放已完成工具。重复准备及重启后都复用已持久化的续作输入。已完成或空会话明确返回 NO_TASK，避免界面静默无动作。
+prepare_continuation 是 TUI /continue 与 CLI continue SESSION_ID 共用的入口：在会话锁内完成恢复，返回未解决的 call_id 供界面提示；未知副作用允许消息与只读操作继续，在 ToolService 派发新副作用时阻止。有未消费输入则返回原队列；没有队列但有未完成任务时创建新的 command_id，并以 continuation_of 关联原 Run。不会重新提交已消费的 command_id，也不会自动重放已完成工具。重复准备及重启后都复用已持久化的续作输入。已完成或空会话明确返回 NO_TASK，避免界面静默无动作。
 
 ### 13.2 故障矩阵
 
@@ -545,7 +559,7 @@ prepare_continuation 是 TUI /continue 与 CLI continue SESSION_ID 共用的入�
 | 工具结果已提交，下一轮模型未开始 | 直接回放已提交结果，不重新执行工具 |
 | 待审批或待用户输入 | 展示原请求；重新验证动作 hash、目标和配置版本，过期请求重新生成 |
 | 压缩进行中 | 以 JSONL 中完整有效的 CompactionCommitted 为准；存在则追平 SQLite 后使用新 checkpoint，否则继续旧 epoch |
-| MCP 连接断开 | 重建连接并重新确认目录；重连不自动重发有副作用调用 |
+| MCP 连接断开 | 重建连接并重新确认目录；重连不自动重发此前调用 |
 | Ctrl+C / Esc | 等待有界清理，已确认本地终止按实际结果持久化；只有结果确实未知时保留 UNKNOWN，已发生修改保留 |
 | JSONL 已提交、SQLite 未更新 | 从投影游标幂等追平，仅重建状态，不重执行工具 |
 | JSONL 追加完成但确认丢失 | 核对 event_id、seq 与 hash，承认已存在记录，不重复追加或重新受理输入 |
@@ -607,7 +621,7 @@ PolicyEngine 使用工具类型、目标路径、工作区、命令和个人授�
 
 这些值在真实任务验证后调整，不承诺 24 小时内完成全部工程能力。应用层与 SDK 的自动重试不能叠加放大；每个失败 attempt 有可追踪记录。工具错误可回填模型，配置错误和内部不变量错误不转为空结果。
 
-## 17 验证与实现阶段
+## 17 验证方法与实现阶段
 
 ### 17.1 验收场景
 
@@ -615,13 +629,15 @@ PolicyEngine 使用工具类型、目标路径、工作区、命令和个人授�
 | --- | --- |
 | 基础 coding | 真实小仓库中检索、读文件、修改、运行测试、展示 diff；结果含实际退出码 |
 | TUI | 流式输出时仍可输入、滚动、取消；长输出不无限占内存；中文、粘贴和窄屏在 Windows 实测 |
+| 协议边界 | Responses reasoning 输入省略 status 并保留摘要与加密内容；空或未知外部错误码合法，字段类型错误明确失败，安全诊断不回显载荷 |
+| 运行中输入 | steer 持久化确认、完整批次之间消费、最终关闭边界与并发输入、失败后未消费消息保留 |
 | 工具配对 | 并发乱序、失败和取消后，每个已提交调用都有准确对应结果，不串入下一轮 |
 | 文件冲突 | 读取后外部修改文件，patch 必须报冲突；不覆盖用户修改 |
 | 个人 Skill | 显式根目录加载、同名区分、按需读取、引用路径约束、版本更新可见 |
-| MCP | 真实 stdio 子进程与本地 HTTP 测试 server；现代协议、旧协议协商、分页、schema 更新、错误和用户交互 |
+| MCP | 真实 stdio 子进程与本地 HTTP 测试 server；协议协商、分页、schema 更新、只读超时 FAILED、远端副作用 UNKNOWN、断线后新请求重连且不重放旧调用 |
 | 检索 | 忽略规则、无匹配/失败区分、Unicode、特殊字符查询、截断与超时语义 |
 | 缓存 | 相同输入快照前缀稳定；明确变更才失效；真实 API usage 观测而非伪造命中 |
-| 压缩 | 触发与滞回、当前目标保留、完整调用组、压缩失败不换窗口、恢复不重复摘要 |
+| 压缩 | 不同窗口的 95% 触发与 25% 目标、完整窗口摘要输入、超限缩批、跨批历史完整性与工具配对；后续批次失败或取消保留原窗口，恢复不重复摘要 |
 | 持久化 | 真实 JSONL 与 SQLite；日志同步、半行尾部、ACK 丢失、事务回滚、磁盘错误、锁冲突、重复 command_id、迁移与完整备份 |
 | 双存储恢复 | JSONL 提交后数据库失败、投影游标不前移、重复回放不重复动作、SQLite 丢失可重建、中间日志损坏不跳过 |
 | 保留与删除 | 投影落后时 GC 不删正文；删除中断后不复活会话；备份含有效日志边界和被引用 artifacts |
@@ -681,9 +697,11 @@ AuthService 在打开系统浏览器之前启动 127.0.0.1 的临时端口监听
 
 凭据包包括注册身份、host_id、subject、scope、expiry、earliest_refresh_at、token_generation 和认证状态。临时文件写入、同步后原子替换；创建与更新均受账户级 OS 锁保护，不能让两个进程同时刷新同一 rotating refresh token。
 
-刷新在网络请求前持久化 REFRESHING 与 generation，释放文件 I/O 临界操作后请求官方 endpoint，成功后一次性替换整包令牌与状态。账户 OS 锁覆盖刷新所有权，但不能持有 SQLite 事务等待网络。遵守 earliest_refresh_at；身份或 scope 改变、invalid_grant、刷新请求结果未知或进程在 REFRESHING 状态崩溃时，进入 REAUTH_REQUIRED，不重用旧 refresh token 盲目重试。
+刷新在网络请求前持久化 REFRESHING 与 generation，释放文件 I/O 临界操作后请求官方 endpoint，成功后一次性替换整包令牌与状态。账户 OS 锁覆盖刷新所有权，但不能持有 SQLite 事务等待网络。遵守 earliest_refresh_at；成功响应经身份与 scope 校验后原子替换旋转令牌；身份或 scope 改变、明确的失效错误、成功旋转后的校验或持久化失败，以及进程在 REFRESHING 状态崩溃时，进入 REAUTH_REQUIRED，不重用旧 refresh token。旋转前发生传输失败或服务暂时拒绝时保留凭据并报告安全错误，当前刷新请求不自动重放；后续独立请求按认证状态判断是否允许续期。
 
 logout 先禁用本地使用，再尝试撤销当前会话。撤销失败清楚显示远端结果未知，不宣称远端已退出；本地令牌清理和保留公开 client_id/host_id 的策略明确执行。普通会话恢复只读取非敏感账户引用，认证无效时暂停模型请求，保留编码任务进度。
+
+续期使用凭据中保留的 issued client_id，以 form-encoded refresh_token grant 请求官方 token endpoint，不额外发送 scope。认证诊断仅记录安全 HTTP 状态和受控错误分类，不输出凭据或服务端自由文本。明确失效时结束该凭据会话，结果未知不能被当作已成功续期。
 
 ### 19.4 订阅模型调用
 
@@ -692,6 +710,10 @@ ResponsesGateway 从 AuthService 获取 bearer token，使用 store=false、stre
 将认证过期、额度耗尽、模型无权访问、服务临时不可用与流中断分别映射到类型化错误。流已产生输出后断开不透明重放；模型请求的结果未知与外部工具的结果未知分开记录。授权刷新成功不意味着模型请求可无限重试。
 
 订阅路径的缓存和原生压缩只发送已验证支持的参数；不支持的能力显示限制，不更换认证模式绕过限制。summary 压缩可通过同一已授权模型的普通无工具请求完成。
+
+历史仍存完整 NativeReasoning；HTTP 请求边界使用独立的 ResponsesReasoningInput 契约，保留 id、summary、非空 content 与 encrypted_content，不发送 status，不改写会话事实或删除推理上下文。参考固定 Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 `codex-rs/protocol/src/models.rs:1051`，其 Reasoning 序列化同样不包含 status。其它消息、函数调用与结果保持原顺序和配对。
+
+外部 error.code 属于开放协议字符串，可为 null；message、param、type 为具名可空字段，在协议边界校验形状，内部已知分类仍使用枚举。界面保留 HTTP 状态、已知错误码和安全参数路径，不直接输出可能回显凭据或请求内容的供应商自由文本。非 JSON 或字段类型错误仍明确报告协议错误，不把合法的未知错误码当成协议损坏。
 
 ### 19.5 验收与实施范围
 
@@ -705,7 +727,7 @@ ResponsesGateway 从 AuthService 获取 bearer token，使用 store=false、stre
 
 ## 20 源码与官方资料
 
-以下 Codex 链接全部固定到本次读取的 commit，方便后续复核；不以不断变化的 main 作为实现证据。
+以下 Codex 链接全部固定到设计参考 commit，方便后续复核；不以不断变化的 main 作为实现证据。
 
 [C1]: https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/core/src/client.rs
 [C2]: https://github.com/openai/codex/blob/19b7bffd7bd5c325a45b91111ce64c85610b90ba/codex-rs/core/src/session/context_window.rs
@@ -728,102 +750,3 @@ ResponsesGateway 从 AuthService 获取 bearer token，使用 store=false、stre
 [D3]: https://textual.textualize.io/guide/workers/
 [D4]: https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html#using-asyncsession-with-concurrent-tasks
 [D5]: https://www.sqlite.org/wal.html
-
-## 21 当前交付与验收边界
-
-0.1.11 删除了 TUI 生成字节累计、usage_during_response 以及没有生产消费者的 estimate_tokens 辅助函数。回归确认正文增量不改变显示值，恢复历史只取最后一次实测输入计数，压缩后回到未知。复制粘贴测试覆盖选区、右键、中文、多行、不自动提交、不重复粘贴和 Ctrl+C 不退出；测试采用模拟剪贴板，另在本机验证原生 API 绑定及隐藏 owner window 的创建与销毁，未读取或覆盖用户剪贴板。
-
-0.1.10 默认窗口仍创建新会话。Runtime 初始化按 session_id 调用 get_session，仅校验和查询目标会话；不通过 list_sessions 扫描全部历史获取工作目录。无关历史文件损坏不应阻止新会话启动或执行，只有显式历史操作才访问其他会话。回归覆盖真实临时 JSONL/SQLite 和 TUI 启动，确保旧文件未被修改。
-
-0.1.9 的最终协议收紧遗漏了 DeepSeek 历史 usage 的 prompt/completion/cache 字段，以及 ChatGPT 的 cache_write_tokens 和 attribution，导致完整日志读取失败；前轮原生输出项检查没有覆盖这一层。0.1.10 对这些实际字段定义明确契约，attribution 内部采用具名记录列表，协议边界保留原有键控形态，仍拒绝未知字段。安装后重新校验全部本机会话，19 个会话共 717 条记录均可读取；72 条真实 usage 的往返内容无差异。没有以忽略未知字段或改写原日志绕过校验。
-
-0.1.9 跨层数据采用 domain 中的 Pydantic 契约，文件内部记录采用 dataclass；业务状态不保存裸字典，不反射读取字段，不用 get 探测业务载荷。状态与闭集分派使用枚举，行为阈值使用配置或具名默认值。动态 MCP schema、参数和结构化响应只在协议边界封装为严格校验的 ProtocolObject；JSONL 原始载荷仅在校验与读取边界存在。固定字段立即校验，未知原生消息类型、无效工具参数、重复 JSON 键和非有限数明确失败。
-
-新 JSONL payload 使用版本 2；既有版本 1 的字符串结果和 MCP 服务目录只在读取边界显式迁移。先按原始 wire 内容验证校验和，再转换契约，不重写历史、不重放工具。读取最近两份实际会话的 83 个原生输出项，phase、reasoning、annotations、logprobs 等字段丢失为 0。另依据官方 openai-python 固定 commit 9301e319ea33ef28fba380f39a289dedc14652c1 的 responses/response_output_message.py 和 response_output_text.py 明确建模阶段、引用与对数概率。
-
-本轮 338 项测试覆盖协议、鉴权、MCP、本地进程、取消、上下文、压缩、JSONL/SQLite 恢复及界面。新增回归验证已存在附件不能绕过输出上限、转义后最终序列化长度受限、重复 MCP 数据去重、二进制资源不直接入模、实际 usage 基准延续、不同窗口的 95% 触发，以及摘要不完整时保留原窗口并记录实际诊断。最新实际会话只读重算约 107.1k / 256k（41.8%），不触发自动压缩。估算仍以 ~ 标识，服务端计数到达及压缩后会发生有依据的校正；不宣称所有时刻精确。
-
-当前首版包含手写异步 Runtime、Textual TUI / headless CLI、文件与 rg 检索工具、受控进程、个人 Skills、MCP 工具/资源/prompts、独立订阅认证、稳定前缀、摘要压缩、JSONL / SQLite 恢复、备份和离线维护。运行方式与真实配置入口见 README.md。
-
-本轮通过三个 gpt-6.1-sol 子智能体实施，由主 Agent 独立复核关键边界、补充真实 kill 测试并执行全仓验收。遵循 Engineering Core 的 Python 分层、异步、事务与依赖核验流程，以及 AGENTS.md 中用户追加的七条代码规则。
-
-验收分层如下，不能互相替代：
-
-| 层次 | 已验证行为与证据 |
-| --- | --- |
-| 内核与长任务 | 单条用户请求的连续工具链触发压缩后完成；完整原生批次及当前请求保留；后台句柄终结前受保护；失败不提交新 epoch。见 tests/test_runtime.py、tests/test_context.py |
-| 本地真实副作用 | 真实文件写入、shell、rg、进程树终止；派发前后、结果提交后真实 kill，再启动不重复写入。见 tests/test_client_integration.py、tests/test_crash_recovery.py |
-| 双存储与维护 | 半行尾部、坏行、投影失败、跨进程锁、备份边界；损坏 SQLite 重建、保留 DB/WAL/SHM、删除中断、切换中断与旧投影不复活。见 tests/test_persistence*.py、tests/test_projection_maintenance.py |
-| 扩展协议 | 真实 stdio / 本地 HTTP MCP transport、资源/prompts、schema 更新、Skill 快照与引用范围。见 tests/test_mcp_transport.py、tests/test_skills_catalog.py |
-| 认证与模型适配 | 可控身份端点和传输响应验证 PKCE/OIDC、刷新所有权、取消、凭据保护、SSE 与不完整调用拒绝。没有代替真实账户推理验收 |
-| TUI | Textual Pilot 验证排队、取消、恢复不自动执行、授权问题修复后续作、预算调整后续作、明确的拒绝焦点、窄屏与 usage 缺失显示。真实终端 IME、粘贴与物理键位仍需用户环境验收 |
-
-此前 0.1.1 的验收平台为 Windows，使用仓库锁文件分别安装 CPython 3.12.7 与 3.14.3 环境，各通过 135 项 pytest 检查、Ruff 和锁文件核验。0.1.2/0.1.3 的检查增加任务与回复分组、恢复只读展示、折叠工具/diff、输入行数、键盘审批和三种权限模式。
-
-0.1.4 增加 Chat Completions、API key 账户操作、推理菜单及会话 provider 绑定。首轮修正后全套 252 项通过；追加旧会话绑定与显式关闭推理边界后，相关 93 项通过，最新全套 265 项中 263 项通过，另外两项暴露测试消息调度竞态。测试改为等待模型调用实际启动后再等待 worker 完成，TUI 全部 23 项通过，覆盖这两项失败；此后没有修改生产代码。Ruff 检查与格式检查通过。真实 DeepSeek deepseek-flash 完成两轮 read_file 交互并返回 444，推理内容与 usage 成功。使用锁定依赖更新本机 uv tool 为 0.1.4，命令入口、API key 状态和实际模型目录查询成功；安装后的 56 个 Python 文件与源码逐个哈希一致。所有运行数据、测试环境和中间产物放在仓库外的会话 outputs 中。
-
-此前首版曾完成 wheel 与源码分发包构建、wheel 文件及迁移资源核对，以及仓库外安装后的 diagnostics 和 rebuild 验证；这些历史检查不替代后续版本对应的验收。
-
-0.1.5 仅调整工具详情点击收起及布局，并明确默认配置启动流程。工具详情与 TUI 共 37 项检查通过，追加的实际文本选择断言通过，Ruff 检查与格式检查通过。核对展开/折叠截图，标题前多余边框行和正文顶部内边距已消除。已按锁定依赖更新本机命令，安装后的 transcript.py 与验收源码哈希一致。文档中的两种默认 model 配置均通过 AppConfig 校验，用户当前默认配置仍为 ChatGPT 订阅，未自动改成 DeepSeek。
-
-0.1.6 将平滑呈现与 delta 接收分离，正文和 reasoning 共享单个串行呈现任务，保留历史恢复与取消立即追平。20 项 transcript 检查、24 项 TUI 检查、Ruff 检查和格式检查通过，覆盖突发长文本的中间帧、组合字符边界、连续增长不丢字、慢渲染时输入及后续 delta 继续响应、最终修正、取消和滚动跟随。本机模拟一次收到 1800 字符，记录 19 次 Markdown 增量绘制，首次完成约 16ms，全部完成约 282ms，最终文本精确一致；这些数据是模拟输入下的组件绘制时序，不是模型网络延迟或物理终端帧率。已按锁定依赖安装 0.1.6，安装后的 57 个 Python 文件与源码哈希一致。
-
-未验证或未实现的边界明确保留：真实订阅账号登录与模型权限、实际缓存命中、POSIX 行为、真实终端 IME；供应商原生压缩、MCP OAuth/elicitation/sampling/roots、远端遥测导出、全历史 TUI 分页和增量 JSONL 扫描。账户、平台和真实终端的验证不能由模拟测试代替，后续能力不以现成 SDK 具备为由宣称已接入。本阶段不包含矿业三个 MCP server。
-
-维护机制额外参考固定 Codex 源码：state/src/runtime/recovery.rs 的失败数据库及 sidecar 隔离，以及 state/src/runtime/threads.rs 的关联状态删除顺序。本项目采用显式离线 CLI、客户端 lease、已验证 staging 和持久化 manifest；这是针对本项目的选择，并非声称 Codex 使用相同维护流程。
-
-0.1.7 全套 302 项 pytest 检查通过，Ruff 检查及格式检查通过。新增实际命令取消验证覆盖进程树终止、重复 Esc、进程已退出但结果尚未提交、目录初始化与协程尚未开始、JSONL 已持久化但投影未完成、重启及投影重建后不重复执行。上下文计量验证覆盖未知值、实时输出、usage 锚点、缓存计数、工具增量及压缩边界；等待阶段动画、空闲停止、减少动画、窄屏输入和手动压缩取消也已验证。底部截图核对显示 Context k/百分比与活动耗时。已按锁定依赖安装 0.1.7，安装后的 59 个 Python 文件与源码哈希一致，本机默认仍为 DeepSeek，窗口为 256000。旧版缺少终止证据的 UNKNOWN 历史未改写。
-
-0.1.8 本轮 49 项 MCP、工具和 TUI 相关回归检查通过，Ruff 检查通过。覆盖环境变量来源优先级、显式空值拒绝、异步注册表读取、凭据脱敏、连接失败反馈和工具发现。TUI 启动提示测试等待消息队列后单独复测通过，未重跑全套测试。已按锁定依赖安装 0.1.8，安装后的 60 个 Python 文件与源码哈希一致。保留 ChatGPT 登录配置及三个矿业 MCP 配置；未调用矿业业务工具，真实服务验证由用户进行。
-
-### 运行中输入：steer 与 queue
-
-Enter 在活动 run 中提交 steer，Tab 显式排队，命令菜单可见时 Tab 仍用于补全。steer 写入带 target_run_id 的 PendingInput，持久化后确认接收；完整模型/工具批次之间追加 UserMessage，随后同一 run 继续。不会取消已执行工具或拆开调用与结果。最终回答后原子检查待接收输入，再关闭 steer 接收边界；边界关闭后的输入排入下一 run。失败或取消后未消费消息保留，/continue 读取日志继续，不重放已完成工具。
-
-参考固定 Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba`：`codex-rs/tui/src/bottom_pane/chat_composer.rs:3492` 区分提交与排队，`codex-rs/core/src/session/input_queue.rs:389` 原子提取输入，`codex-rs/core/src/tasks/regular.rs:115` 在任务正常结束前检查 pending。TUI 按消费回执切换后续输出所属用户消息，恢复同一 run 的多条用户输入时保持顺序。
-
-### OAuth 续期验收
-
-依据官方 [Accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)、[Token reference](https://developers.openai.com/siwc/token-sharing-open-source/token-reference) 和 [Errors and recovery](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery)：access token 一小时，refresh token 三十天且成功刷新会旋转替换。应用在模型请求前检查到期，保留 issued client_id，以 form-encoded refresh_token grant 请求 token endpoint，不额外发送 scope。同一会话使用文件锁串行化刷新，新凭据验证后原子替换。2026-10-09 单次真实刷新返回 HTTP 200，新 token 通过随后 ChatGPT 模型请求；旧失败的具体原因没有留存，不推断为必然失效。
-
-认证错误记录安全 HTTP 状态和受控错误分类，不输出凭据或服务端自由文本。明确的暂时拒绝保留凭据；结果未知或旋转后校验失败不能重放旧 refresh token；官方列举的明确失效代码结束该凭据会话。
-
-0.1.12 真实验收：ChatGPT gpt-6.1-sol 的摘要 input 56926/output 255，后续请求完成且保留测试标识。DeepSeek deepseek-flash 对实际失败会话副本摘要 input 222275/output 5061，检查点预算由 243084 降至 16157，目标 64000；续问 input 6652/output 81 并正常结束。检查摘要保留目标、中文及无副作用限制、源码结论、失败尝试和待办。预算数字是内部估算，服务端 usage 单独记录；不把二者混为精确实时占用。
-
-### 0.1.13 MCP 故障隔离
-
-已配置 MCP 服务的只读声明进入具名工具契约与 schema fingerprint；权限仍保留 REMOTE 审批，声明不扩大写入授权。查询超时记 FAILED，未明确只读的远端操作仍保守记 UNKNOWN。未解决的 UNKNOWN 保留在日志中并向模型说明，新用户输入与读取可继续，副作用执行由 ToolService 阻止，不再在 Run 入口阻断整个会话。
-
-连接 owner 终止时使在途和等待请求明确失败。请求超时或取消会清理所属连接，下一次独立请求可重新初始化；不得重放此前调用。界面将已提出但未派发的工具标为 queued，收到 TOOL_DISPATCHING 后才显示 working。
-
-2026-10-09 事件原因：每日 Docker 磁盘压缩在03:08:58停止Docker，打断抽取模型调用；恢复期间RabbitMQ就绪检查失败延长中断。服务不是OOM崩溃。原抽取任务从检查点恢复后返回完整JORC18条记录，之前已完成步骤未重跑。自动压缩脚本和定时提示均已加任何容器运行即跳过保护，常规缓存清理规则保留。
-
-存在未知结果时仍允许压缩，但保留相应调用与结果的完整原生分组，执行限制始终由原始日志计算。只读/副作用分类在派发事实中持久化，重启后的恢复不因丢失临时内存而把新只读查询误记为未知；旧记录缺失分类时保持保守。当前批次发生未知后，随后有副作用动作立即拒绝，避免等整批结束才发现风险。
-
-本次旧会话 d0323ca82b6f4c16a2a125b1138201d5 的两个查询，经核对 Gateway 到后端的只读 GET 实现和停机超时日志，追加失败查询核验记录解除误锁，未改写旧 JSONL、未删除待发送消息、未重放请求。抽取 df69dcca-96f5-58a3-a247-f6739bcf9dae 的完整结果已通过客户端 McpManager 读取；Gateway 部署没有重启后台或数据服务。
-
-### 0.1.14 摘要输入超限恢复
-
-实际故障会话最后一次模型输入为 232317 tokens，输出为 743 tokens；随后四次文件读取使内部预算达到 248135，超过 256000 窗口的 95% 触发线 243200。摘要输入上限为 245248。摘要原本排除了保留尾部，但预算上界仍取自完整上下文，字节估算又显著高于 provider 实测，最终在请求发送前拒绝。原实现只有单次摘要路径，旧测试把超限停止作为预期，遗漏可分批历史的恢复验收。
-
-固定 Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 `codex-rs/core/src/compact.rs:338` 在摘要请求遇到 ContextWindowExceeded 时移除最早历史项再重试。本项目删除摘要输入额外扣除输出预留和安全余量的限制，仅以配置的完整窗口作为摘要输入分批基准。首次仍尝试完整摘要，超过完整窗口预算或 provider 明确拒绝上下文大小时，严格缩小当前批次；每批携带前批摘要、当前用户请求与末尾总结指令。成功批次推进游标，每个旧分组按原顺序恰好处理一次，工具调用及结果不得拆开，不丢弃尚未总结的历史。
-
-所有中间摘要仅用于当前压缩操作，全部批次成功、原生调用配对完整且替换窗口满足 25% 目标后才提交一次 checkpoint。后续批次失败或取消保留原窗口；不自动执行任何工具。固定前缀和受保护尾部在请求前检查目标可达性。单个不可拆分分组仍超过输入预算，或受保护内容本身超过目标时，明确失败并保留事实，不伪造工具结果或静默删除内容。95% 触发、25% 目标以及界面仅显示服务端最后一次输入用量的契约不变。
-
-新增回归覆盖跨批历史完整性、服务端超限后缩批、原生工具配对、后续批次失败和取消的原窗口保留，以及旧保留预算和完整窗口之间的摘要正常发送。最终完整窗口规则下，DeepSeek 对实际失败会话副本仅一次摘要即成功，真实 input 201277/output 4920，内部预算降到 28873，续问 input 12572/output 308 成功。完整窗口规则调整前，同一副本亦验证三批摘要恢复成功；原始快照日志哈希不变，用户会话未执行工具。
-
-ChatGPT 独立测试会话将相同历史作为文本资料导入，避免把 DeepSeek 专属消息直接用作 Responses 原生历史。完整窗口规则下共三批摘要，真实 input 分别为 109550、58699、114500，最终内部预算为 10052，后续请求 input 2667/output 68 成功。测试期间曾有一次服务端流中断，未生成替换 checkpoint；重新测试完整流程通过，不把网络中断解释为上下文超限。
-
-### 0.1.15 Responses reasoning 回传与错误边界
-
-会话 `42113086f9634e258dec059f588c11f2` 的第 78 条事实对应的模型请求，原样重放返回 HTTP 400，code 为 `unknown_parameter`，param 为 `input[19].status`。内部 NativeReasoning 的默认完成状态被直接序列化为请求输入，接口拒绝该字段。错误解析又把供应商开放的错误码限定为内部枚举，二次校验失败后遮盖了原始原因。同期 `get_price` 的两次失败均为 MCP 业务结果 `no_quote`，与模型协议错误无关。
-
-历史仍存完整 NativeReasoning；HTTP 请求边界使用独立的 ResponsesReasoningInput 契约，保留 id、summary、非空 content 与 encrypted_content，不发送 status，不改写会话事实或删除推理上下文。参考固定 Codex commit `19b7bffd7bd5c325a45b91111ce64c85610b90ba` 的 `codex-rs/protocol/src/models.rs:1051`，其 Reasoning 序列化同样不包含 status。其它消息、函数调用与结果保持原顺序和配对。
-
-外部 error.code 属于开放协议字符串，可为 null；message、param、type 为具名可空字段，在协议边界校验形状，内部已知分类仍使用枚举。界面保留 HTTP 状态、已知错误码和安全参数路径，不直接输出可能回显凭据或请求内容的供应商自由文本。非 JSON 或字段类型错误仍明确报告协议错误，不把合法的未知错误码当成协议损坏。Context7 核对 OpenAI Python 的 APIError 与 ResponseErrorEvent 契约。
-
-修复后的原始模型请求真实重放成功，input_tokens 为 24788，模型提出四个后续工具调用但测试未执行；原用户会话、MCP 抽取任务均未重跑。新增回归覆盖 reasoning 回传字段、加密内容和摘要保留、日志对象不变、原生工具顺序，以及 HTTP/SSE 空错误码、未知错误码、错误字段类型与安全诊断。
-
-### 0.1.16 文档位置与启动标识
-
-根目录保留 README.md 和 AGENTS.md，设计与操作指南分别维护在 docs/DESIGN.md、docs/USER_GUIDE.md。相关相对链接和目录示例同步更新。启动标识统一为 `Agent Client · ShaneGuo`：TUI 顶部显示，命令行入口写入 stderr，stdout 继续承载原有结构化结果。既有 CLI/TUI 回归 38 项通过，文档位置与 12 个本地链接验证通过；本机 66 个安装后 Python 文件与源码哈希一致。
