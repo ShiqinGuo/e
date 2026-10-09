@@ -1,0 +1,30 @@
+[model]
+provider = "openai_responses"
+model = "gpt-6.1-sol"
+auth_mode = "chatgpt"
+api_key_env = "OPENAI_API_KEY"
+base_url = "https://api.openai.com/v1"
+reasoning_effort = "medium"
+context_window = 256000
+max_output_tokens = 8192
+
+[runtime]
+approval_mode = "ask"
+max_model_steps = 40
+max_tool_calls = 120
+max_parallel_reads = 4
+deadline_seconds = 1800
+allow_write = false
+allow_commands = false
+
+[context]
+soft_ratio = 0.95
+target_ratio = 0.25
+strategy = "summary"
+
+[skills]
+roots = []
+catalog_token_budget = 2000
+
+[mcp]
+servers = {}

@@ -1,0 +1,45 @@
+[project]
+name = "agent-client"
+version = "0.1.16"
+description = "An asynchronous terminal agent with durable history and ChatGPT sign-in"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.10,<3",
+  "httpx>=0.28,<1",
+  "sqlalchemy>=2.0,<2.1",
+  "aiosqlite>=0.20,<1",
+  "alembic>=1.14,<2",
+  "textual==8.2.8",
+  "mcp>=2.3,<3",
+  "PyJWT[crypto]>=2.10,<3",
+  "filelock>=3.16,<4",
+  "jsonschema>=4.23,<5",
+  "PyYAML>=6,<7",
+  "opentelemetry-api>=1.30,<2",
+  "opentelemetry-sdk>=1.30,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.9,<1"]
+
+[project.scripts]
+agent-client = "agent_client.presentation.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_client"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

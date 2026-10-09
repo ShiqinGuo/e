@@ -1,0 +1,16 @@
+[model]
+provider = "openai_chat_completions"
+auth_mode = "api_key"
+api_key_env = "DEEPSEEK_API_KEY"
+base_url = "https://api.deepseek.com"
+model = "deepseek-flash"
+reasoning_effort = "high"
+reasoning_levels = ["none", "high", "max"]
+chat_reasoning = "enabled"
+chat_send_reasoning_effort = true
+chat_stream_usage = true
+context_window = 256000
+max_output_tokens = 8192
+
+[runtime]
+approval_mode = "ask"
