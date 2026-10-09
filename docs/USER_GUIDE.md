@@ -1,10 +1,10 @@
 # Agent Client 本地操作指南
 
-本机更新日期：2026-10-09。本文对应本机已安装的版本：0.1.16；重启 agent-client 后使用新版。直接启动默认创建新会话，不读取其他会话正文作为上下文；恢复历史需要显式选择会话。
+直接运行 `agent-client` 创建新会话。恢复历史会话时，使用 `resume` 或 `/resume` 指定会话。
 
 启动标识为 `Agent Client · ShaneGuo`，TUI 顶部持续可见；命令行在 stderr 打印启动标识，JSON 等结构化结果仍从 stdout 输出。
 
-已安装独立的 `agent-client` 命令和 ripgrep 15.2.0，使用 Python 3.12.7，运行依赖按本项目 `uv.lock` 锁定。日常使用不需要进入源码仓库，也不需要激活虚拟环境。先重新打开一个 PowerShell 窗口，使新安装的 `rg` 路径生效。
+需要 Python 3.12+、uv 和 ripgrep。安装方法见 [README](../README.md)。安装后重新打开终端，确认 `agent-client` 与 `rg` 命令可用；日常使用不需要进入源码仓库或激活虚拟环境。
 
 ## 1. 第一次使用
 
@@ -22,7 +22,7 @@ agent-client auth models
 
 默认模型是 `gpt-6.1-sol`。以 `auth models` 返回的实际目录为准；如果账户无权使用默认模型，修改个人配置中的 `model`，或进入 TUI 后使用 `/model MODEL_NAME`。不会静默换模型或自动切换到 API key 计费。
 
-日常直接运行 `agent-client`，它默认读取 `C:/Users/20977/.agent-client/config.toml`。切换端点或认证方式时，修改这份文件的 `[model]` 段，保存后退出并重新运行 `agent-client`。本机 `DEEPSEEK_API_KEY` 环境变量已存在，切换 DeepSeek 的完整配置见第 5 节。
+日常直接运行 `agent-client`，它默认读取 `~/.agent-client/config.toml`。切换端点或认证方式时，修改这份文件的 `[model]` 段，保存后退出并重新运行 `agent-client`。使用 DeepSeek 前，先设置 `DEEPSEEK_API_KEY` 环境变量，配置示例见第 5 节。
 
 ```powershell
 agent-client auth status
@@ -30,7 +30,7 @@ agent-client auth models
 agent-client
 ```
 
-API key 模式下，`auth status` 只检查环境变量中是否存在 key，`api_key_configured` 不代表服务已验证；`auth login` 请求服务的模型目录验证 key，不打开浏览器，`auth models` 列出服务返回的模型。这些操作不改变已保存的 ChatGPT 账户。配置只引用变量名，不保存 key。真实 `deepseek-flash` 已完成两轮模型/`read_file` 交互并返回 `444`，推理内容和 usage 正常；本次未重新进行 ChatGPT 订阅网络调用验收。
+API key 模式下，`api_key_configured` 仅表示环境变量中存在 key。`auth login` 请求模型目录，确认服务是否接受该 key，不打开浏览器；`auth models` 列出服务返回的模型。这些操作不改变已保存的 ChatGPT 账户。配置只引用变量名，不保存 key。
 
 选择一个已经存在的项目目录启动。把下面的路径替换为自己的项目：
 
@@ -66,7 +66,7 @@ agent-client --workspace D:/code/my-project
 | 手动压缩上下文 | `/compact` |
 | 登录或退出账户 | `/login`、`/logout` |
 
-运行中仍可输入。新消息会先保存，再进入队列；当前任务正常完成后继续处理。取消、失败或部分完成后，后续输入仍保留。
+运行中按 Enter 发送补充要求，消息会在当前模型响应及完整工具批次结束后进入同一任务；它不会中止正在执行的命令，立即取消使用 Esc。按 Tab 将输入保留为下一轮任务。取消、失败后，未消费的输入可通过 `/continue` 继续。
 
 例如输入 `/stts` 可匹配 `/status`，按 Tab 补全后按 Enter 执行。输入命令参数或普通多行文本时，候选列表自动关闭。粘贴的多行文本保留在输入框中，不因文本中的换行自动发送。有候选列表时，第一次 Esc 只关闭列表，再按 Esc 才取消运行。
 
@@ -80,7 +80,7 @@ Windows 版本会在运行期间启用带修饰键的终端输入协议，退出
 
 底部例如 `Context 12.4k / 256k · 4.8% · last input` 只展示上次完成请求的服务端 `input_tokens`，不累加历史用量或输出 token。吐字、推理和工具执行期间不会估算增量或刷新数字。新会话、响应未提供 usage、压缩后尚无新请求计数时显示 `-- / 256k · unavailable`。因此这行是上次请求的记录，不包含尚未发送的新增内容。
 
-默认本地窗口为 `256000`，不表示供应商自动增加模型容量。内部仍执行请求预算检查和 **95%** 自动压缩，不能用固定不动的显示值代替发送前的预算判断。摘要使用独立的输出上限与推理设置，默认 `summary_max_output_tokens = 8192`、`summary_reasoning_effort = "none"`。压缩失败保留原历史，可查明错误后使用 `/compact` 重试。
+默认上下文窗口为 `256000`，需按所选模型能力配置。达到窗口的 **95%** 时自动压缩，压缩后目标为窗口的 **25%**：256k 对应不超过 64k。也可使用 `/compact` 手动压缩。压缩失败或取消会保留原历史，处理错误后可重试；界面的 last input 数字不会替代发送前的预算判断。
 
 Windows 下复制、Ctrl+V 和输入框右键粘贴使用系统剪贴板，支持中文和多行文字；多行粘贴不会自动提交。Ctrl+C 没有选区时不做操作，也不退出应用；取消任务仍用 Esc，退出仍用 Ctrl+Q。
 
@@ -141,10 +141,10 @@ agent-client --workspace D:/code/my-project --allow-write --allow-commands run "
 
 ## 5. 个人配置与模型
 
-本机已生成默认配置：
+默认配置文件位于：
 
 ```text
-C:\Users\20977\.agent-client\config.toml
+~/.agent-client/config.toml
 ```
 
 可以用记事本打开：
@@ -226,11 +226,11 @@ agent-client --home D:/agent-data/separate --workspace D:/code/my-project
 
 ```toml
 [skills]
-roots = ["C:/Users/20977/.agents/skills"]
+roots = ["~/.agents/skills"]
 catalog_token_budget = 2000
 ```
 
-目录中的 Skill 应包含 `SKILL.md`。用 `/skills` 查看是否被发现。个人通用指令可以放在 `C:/Users/20977/.agent-client/AGENTS.md`，项目规则放在对应项目的 `AGENTS.md`。安装过程没有自动启用你的全部 Skills 或额外 MCP 服务。
+目录中的 Skill 应包含 `SKILL.md`。用 `/skills` 查看是否被发现。个人通用指令可以放在 `~/.agent-client/AGENTS.md`，项目规则放在对应项目的 `AGENTS.md`。安装过程没有自动启用你的全部 Skills 或额外 MCP 服务。
 
 下面是 MCP 配置模板，需要先准备相应服务，再替换命令或地址：
 
@@ -255,6 +255,8 @@ token_env = "MY_MCP_HTTP_TOKEN"
 
 启动时会显示 MCP 已连接服务或具体连接错误，也可用 `/mcp` 查看详情。模型能看到服务连接状态；`search_mcp_tools` 返回工具列表和连接状态，空列表不再掩盖认证问题。搜索使用短关键词，空查询列出全部可用工具；长句要求全部词匹配，可能没有结果。`required=true` 的服务连接失败会阻止启动。当前支持工具、资源和 prompts，未接入 MCP OAuth、elicitation、sampling 或 roots 回调。
 
+MCP 暂时断线不会锁住聊天。明确声明只读的查询超时记为失败，其他结果未知的操作保留 UNKNOWN。下一次新请求可重新连接，不会自动重放之前超时的请求。工具尚未派发时显示 queued，实际开始执行才显示 working。
+
 ## 7. 错误处理
 
 | 现象 | 处理 |
@@ -277,7 +279,7 @@ agent-client resolve SESSION_ID CALL_ID succeeded "Confirmed the resulting file 
 agent-client continue SESSION_ID
 ```
 
-若核验结果为未完成，把 `succeeded` 改为 `failed`。`resolve` 只保存结论，不替你执行工具。诊断入口是 `agent-client diagnostics`，本机日志位于 `C:\Users\20977\.agent-client\logs\runtime.jsonl`。
+若核验结果为未完成，把 `succeeded` 改为 `failed`。`resolve` 只保存结论，不替你执行工具。诊断入口是 `agent-client diagnostics`，默认日志位于 `~/.agent-client/logs/runtime.jsonl`。
 
 ## 8. 备份、重建和删除
 
@@ -314,33 +316,30 @@ agent-client delete SESSION_ID
 
 删除会把会话保留在输出的 `trash_directory` 中，并留下删除标记。需要找回时，将其中的 `session` 目录复制到独立数据目录下的 `sessions/SESSION_ID` 后重建。不要直接放回原数据目录，它会再次被隔离。会话删除不会删除项目代码或账户。
 
-## 9. 本机安装位置与更新
+## 9. 更新和卸载
 
-| 内容 | 位置 |
-| --- | --- |
-| 命令入口 | `C:\Users\20977\.local\bin\agent-client.exe` |
-| 独立 Python 工具环境 | `C:\Users\20977\AppData\Roaming\uv\tools\agent-client` |
-| 默认数据与配置 | `C:\Users\20977\.agent-client` |
-| 项目源码 | `D:\code\code4interview` |
-
-这是普通安装，不是 editable 安装。修改源码不会自动改变日常使用的已安装版本。更新代码后，先关闭客户端，再在仓库中按锁文件重新安装：
+更新前退出正在运行的客户端，从 [Releases](https://github.com/ShiqinGuo/e/releases) 下载新版 wheel，将下面的 `VERSION` 替换为下载的版本号：
 
 ```powershell
-Set-Location D:/code/code4interview
-$agentOutputs = if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME "outputs" } else { Join-Path $env:USERPROFILE ".codex/outputs" }
-$agentInstallWork = Join-Path $agentOutputs ("agent-client-install-" + [guid]::NewGuid().ToString())
-New-Item -ItemType Directory -Force -Path $agentInstallWork | Out-Null
-uv export --locked --no-dev --no-emit-project --no-hashes --no-annotate --no-header --output-file "$agentInstallWork/runtime-constraints.txt"
-uv tool install --force --reinstall-package agent-client --python 3.12 --constraints "$agentInstallWork/runtime-constraints.txt" D:/code/code4interview
+uv tool install --force --python 3.12 ./agent_client-VERSION-py3-none-any.whl
 agent-client --help
 ```
 
-卸载程序使用 `uv tool uninstall agent-client`。程序卸载不会删除个人配置、账户和会话；保留数据也便于重新安装后恢复。
+查看工具环境和命令位置：
 
-本次已验证普通用户 PATH、独立安装包、配置加载、SQLite、文件检索/读取/修改和命令执行。真实订阅登录、推理与终端输入法体验仍需完成实际授权和交互验收；安装成功不等于账户已有模型使用权限。
+```powershell
+uv tool dir
+Get-Command agent-client
+```
 
-运行中按 Enter 发送补充要求时，消息会在当前模型响应及完整工具批次完成后进入同一任务。它不会中止正在执行的命令；立即取消仍使用 Esc。按 Tab 则明确保留为下一轮任务。取消后未消费的输入仍可通过 `/continue` 继续。
+从源码更新时，在仓库根目录执行以下命令，以锁文件中的依赖版本重新安装：
 
-上下文默认在完整窗口的 95% 触发压缩，压缩后目标为窗口的 25%：256k 对应不超过 64k。摘要输入按完整 256k 窗口判断，不再额外扣减输出预留或安全余量。超出窗口或供应商明确报上下文超限时，按完整消息组分批总结，合并成功后才替换上下文；任一批失败或取消都保留原窗口。摘要使用非空文本契约；若单个不可拆分分组超过窗口，或受保护的最新工具批次或固定指令已超过目标，会明确报错，不截断工具配对。
+```powershell
+$agentInstallWork = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-client-install-" + [guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Force -Path $agentInstallWork | Out-Null
+uv export --locked --no-dev --no-emit-project --no-hashes --no-annotate --no-header --output-file "$agentInstallWork/runtime-constraints.txt"
+uv tool install --force --reinstall-package agent-client --python 3.12 --constraints "$agentInstallWork/runtime-constraints.txt" .
+agent-client --help
+```
 
-MCP 暂时断线不会锁住聊天。明确声明只读的查询超时记为失败；其他结果未知的操作保留 UNKNOWN。下一次新请求可重新建立连接，不会自动重放之前超时的请求。工具尚未派发时显示 queued，实际开始执行才显示 working。
+普通安装不会随源码修改自动更新。卸载使用 `uv tool uninstall agent-client`；卸载程序会保留个人配置、账户和会话。
